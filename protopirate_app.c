@@ -106,7 +106,7 @@ ProtoPirateApp* protopirate_app_alloc() {
 
     LOG_HEAP("After receiver views");
 
-    // Init setting - KEEP THIS, it's small
+    // Init setting
     app->setting = subghz_setting_alloc();
     app->loaded_file_path = NULL;
     subghz_setting_load(app->setting, EXT_PATH("subghz/assets/setting_user"));
@@ -186,6 +186,7 @@ ProtoPirateApp* protopirate_app_alloc() {
 
     // Mark as not initialized
     app->radio_initialized = false;
+    app->decoder_initialized = false;
 
     LOG_HEAP("App alloc complete (radio deferred)");
 
@@ -200,6 +201,10 @@ bool protopirate_radio_init(ProtoPirateApp* app) {
     }
 
     LOG_HEAP("Radio init start");
+
+    if(app->decoder_initialized) {
+        protopirate_decoder_deinit(app);
+    }
 
     // Allocate history
     app->txrx->history = protopirate_history_alloc();
@@ -271,43 +276,61 @@ bool protopirate_radio_init(ProtoPirateApp* app) {
 }
 
 bool protopirate_decoder_init(ProtoPirateApp* app) {
-    if(app->radio_initialized) {
-        FURI_LOG_D(TAG, "Decoder already initialized");
+    if(app->radio_initialized || app->decoder_initialized) {
+        FURI_LOG_D(TAG, "Decoder/Radio already initialized");
         return true;
     }
 
     LOG_HEAP("Decoder init start");
 
     app->txrx->history = protopirate_history_alloc();
-    LOG_HEAP("After history alloc");
-
     app->txrx->worker = NULL;
 
     app->txrx->environment = subghz_environment_alloc();
-    LOG_HEAP("After environment alloc");
 
-    FURI_LOG_I(TAG, "Registering %zu ProtoPirate protocols", protopirate_protocol_registry.size);
     subghz_environment_set_protocol_registry(
         app->txrx->environment, (void*)&protopirate_protocol_registry);
 
     subghz_environment_load_keystore(app->txrx->environment, PROTOPIRATE_KEYSTORE_DIR_NAME);
-    LOG_HEAP("After keystore load");
 
     protopirate_keys_load(app->txrx->environment);
-    FURI_LOG_I(TAG, "Loaded ProtoPirate secure keys");
-    LOG_HEAP("After keys load");
 
     app->txrx->receiver = subghz_receiver_alloc_init(app->txrx->environment);
-    LOG_HEAP("After receiver alloc");
 
     subghz_receiver_set_filter(app->txrx->receiver, SubGhzProtocolFlag_Decodable);
 
     app->txrx->radio_device = NULL;
-    app->radio_initialized = true;
+    app->decoder_initialized = true;
 
     LOG_HEAP("Decoder init complete");
-
     return true;
+}
+
+void protopirate_decoder_deinit(ProtoPirateApp* app) {
+    if(!app->decoder_initialized) return;
+
+    FURI_LOG_I(TAG, "Deinitializing decoder");
+
+    if(app->txrx->receiver) {
+        subghz_receiver_free(app->txrx->receiver);
+        app->txrx->receiver = NULL;
+    }
+
+    if(app->txrx->environment) {
+        subghz_environment_free(app->txrx->environment);
+        app->txrx->environment = NULL;
+    }
+
+    if(app->txrx->history) {
+        protopirate_history_free(app->txrx->history);
+        app->txrx->history = NULL;
+    }
+
+    app->txrx->worker = NULL;
+    app->txrx->radio_device = NULL;
+    app->decoder_initialized = false;
+
+    LOG_HEAP("Decoder deinit complete");
 }
 
 // Deinitialize radio subsystem
@@ -378,6 +401,9 @@ void protopirate_app_free(ProtoPirateApp* app) {
 
     // Deinitialize radio if it was initialized
     protopirate_radio_deinit(app);
+
+    //Deinitialize decoder if it was initialized
+    protopirate_decoder_deinit(app);
 
     if(app->loaded_file_path) {
         furi_string_free(app->loaded_file_path);

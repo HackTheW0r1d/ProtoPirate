@@ -1067,7 +1067,9 @@ bool protopirate_scene_sub_decode_on_event(void* context, SceneManagerEvent even
 void protopirate_scene_sub_decode_on_exit(void* context) {
     ProtoPirateApp* app = context;
 
-    subghz_receiver_set_rx_callback(app->txrx->receiver, NULL, NULL);
+    if(app->txrx->receiver) {
+        subghz_receiver_set_rx_callback(app->txrx->receiver, NULL, NULL);
+    }
 
     if(g_decode_ctx) {
         if(g_decode_ctx->raw_reader) {
@@ -1089,14 +1091,11 @@ void protopirate_scene_sub_decode_on_exit(void* context) {
         free(g_decode_ctx);
         g_decode_ctx = NULL;
     }
-
-    if(app->txrx->history) {
-        protopirate_history_reset(app->txrx->history);
-    }
-
+    
     view_set_draw_callback(app->view_about, NULL);
     view_set_input_callback(app->view_about, NULL);
     widget_reset(app->widget);
-
     protopirate_view_receiver_reset_menu(app->protopirate_receiver);
+
+    protopirate_decoder_deinit(app);
 }

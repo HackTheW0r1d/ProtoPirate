@@ -5,7 +5,6 @@
 #include <gui/elements.h>
 #include <furi.h>
 #include <math.h>
-#include <assets_icons.h>
 
 #include "proto_pirate_icons.h"
 
@@ -57,9 +56,9 @@ static void protopirate_view_rssi_draw(Canvas* canvas, ProtoPirateReceiverModel*
     for(uint8_t i = 1; i < u_rssi; i++) {
         if(i % 5) {
             uint8_t j = 46 + i + spacer;
-            canvas_draw_dot(canvas, j, 51);
-            canvas_draw_dot(canvas, j + 1, 52);
-            canvas_draw_dot(canvas, j, 53);
+            canvas_draw_dot(canvas, j, 52);
+            canvas_draw_dot(canvas, j + 1, 53);
+            canvas_draw_dot(canvas, j, 54);
         } else
             spacer++;
     }

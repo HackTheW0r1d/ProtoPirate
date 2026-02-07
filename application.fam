@@ -12,5 +12,4 @@ App(
     fap_category="Sub-GHz",
     fap_icon_assets="images",
     fap_file_assets="keystore",
-    fap_libs=["assets"],
 )

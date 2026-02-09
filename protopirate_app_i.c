@@ -66,11 +66,9 @@ void protopirate_get_frequency_modulation(
     FuriString* modulation) {
     furi_assert(app);
     if(frequency != NULL) {
-        furi_string_printf(
-            frequency,
-            "%03ld.%02ld",
-            app->txrx->preset->frequency / 1000000 % 1000,
-            app->txrx->preset->frequency / 10000 % 100);
+        unsigned long mhz = (unsigned long)((app->txrx->preset->frequency / 1000000UL) % 1000UL);
+        unsigned long khz = (unsigned long)((app->txrx->preset->frequency / 10000UL) % 100UL);
+        furi_string_printf(frequency, "%03lu.%02lu", mhz, khz);
     }
     if(modulation != NULL) {
         furi_string_printf(modulation, "%.2s", furi_string_get_cstr(app->txrx->preset->name));

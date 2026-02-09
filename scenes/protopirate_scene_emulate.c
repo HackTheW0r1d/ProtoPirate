@@ -345,14 +345,14 @@ static bool protopirate_emulate_input_callback(InputEvent* event, void* context)
 void protopirate_scene_emulate_on_enter(void* context) {
     ProtoPirateApp* app = context;
 
-    // Safety: clean up any previous context that wasn't freed
     if(emulate_context != NULL) {
         FURI_LOG_W(TAG, "Previous emulate context not freed, cleaning up");
         emulate_context_free();
     }
 
-    if(!protopirate_radio_init(app)) {
-        FURI_LOG_E(TAG, "Failed to initialize radio!");
+    // Use TX-only init instead of full radio init
+    if(!protopirate_tx_init(app)) {
+        FURI_LOG_E(TAG, "Failed to initialize radio for TX!");
         notification_message(app->notifications, &sequence_error);
         scene_manager_previous_scene(app->scene_manager);
         return;
@@ -678,7 +678,7 @@ bool protopirate_scene_emulate_on_event(void* context, SceneManagerEvent event) 
             break;
         }
     } else if(event.type == SceneManagerEventTypeTick) {
-        // Update display
+        // Update display (causes ViewPort lockup warning but works)
         view_commit_model(app->view_about, true);
 
         if(emulate_context && emulate_context->is_transmitting) {

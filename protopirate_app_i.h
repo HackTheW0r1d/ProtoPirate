@@ -26,7 +26,10 @@
 
 #define PROTOPIRATE_KEYSTORE_DIR_NAME APP_ASSETS_PATH("encrypted")
 
-// #define ENABLE_EMULATE_FEATURE
+//#define ENABLE_TIMING_TUNER_SCENE
+//#define ENABLE_SUB_DECODE_SCENE
+
+//#define ENABLE_EMULATE_FEATURE
 
 #define REMOVE_LOGS
 
@@ -82,7 +85,6 @@ struct ProtoPirateApp {
     FuriString* loaded_file_path;
     bool auto_save;
     bool radio_initialized;
-    bool decoder_initialized;
     ProtoPirateSettings settings;
     uint32_t start_tx_time;
     uint8_t tx_power;
@@ -117,9 +119,9 @@ void protopirate_hopper_update(ProtoPirateApp* app);
 void protopirate_tx(ProtoPirateApp* app, uint32_t frequency);
 void protopirate_tx_stop(ProtoPirateApp* app);
 bool protopirate_radio_init(ProtoPirateApp* app);
-bool protopirate_decoder_init(ProtoPirateApp* app);
 void protopirate_radio_deinit(ProtoPirateApp* app);
-bool protopirate_tx_init(ProtoPirateApp* app);
+
+void protopirate_app_free(ProtoPirateApp* app);
 
 static const NotificationSequence sequence_tx = {
     &message_note_c5,

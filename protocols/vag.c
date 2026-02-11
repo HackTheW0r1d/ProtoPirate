@@ -36,8 +36,17 @@ static void protocol_vag_load_keys(const char* file_name) {
 
         if(subghz_keystore_raw_get_data(
                file_name, i * AUT64_PACKED_KEY_SIZE, key_packed, AUT64_PACKED_KEY_SIZE)) {
-            aut64_unpack(&protocol_vag_keys[i], key_packed);
-            protocol_vag_keys_loaded++;
+            int rc = aut64_unpack(&protocol_vag_keys[i], key_packed);
+            if(rc == AUT64_ERR_INVALID_PACKED) {
+                FURI_LOG_E(TAG, "Invalid key: %u", i);
+            } else if(rc == AUT64_ERR_NULL_POINTER) {
+                FURI_LOG_E(TAG, "Key is NULL: %d", i);
+            }
+            if(rc == AUT64_OK) {
+                protocol_vag_keys_loaded++;
+            } else {
+                break;
+            }
         } else {
             FURI_LOG_E(TAG, "Unable to load key %u", i);
             break;
@@ -188,8 +197,14 @@ static bool vag_aut64_decrypt(uint8_t* block, int key_index) {
         FURI_LOG_E(TAG, "Key not found: %d", key_index + 1);
         return false;
     }
-    aut64_decrypt(*key, block);
-    return true;
+    int rc = aut64_decrypt(key, block);
+    if(rc == AUT64_ERR_INVALID_KEY) {
+        FURI_LOG_E(TAG, "Invalid key: %d", key_index + 1);
+    } else if(rc == AUT64_ERR_NULL_POINTER) {
+        FURI_LOG_E(TAG, "key is NULL: %d", key_index + 1);
+    }
+
+    return (rc == AUT64_OK) ? true : false;
 }
 
 static void vag_parse_data(SubGhzProtocolDecoderVAG* instance) {
@@ -1067,8 +1082,14 @@ static bool vag_aut64_encrypt(uint8_t* block, int key_index) {
         FURI_LOG_E(TAG, "Key not found for encryption: %d", key_index + 1);
         return false;
     }
-    aut64_encrypt(*key, block);
-    return true;
+    int rc = aut64_encrypt(key, block);
+    if(rc == AUT64_ERR_INVALID_KEY) {
+        FURI_LOG_E(TAG, "Invalid key: %d", key_index + 1);
+    } else if(rc == AUT64_ERR_NULL_POINTER) {
+        FURI_LOG_E(TAG, "key is NULL");
+    }
+
+    return (rc == AUT64_OK) ? true : false;
 }
 
 static uint8_t vag_get_dispatch_byte(uint8_t btn, uint8_t vag_type) {

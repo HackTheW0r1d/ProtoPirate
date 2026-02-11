@@ -371,6 +371,7 @@ int aut64_decrypt(const struct aut64_key* key, uint8_t* message) {
     return AUT64_OK;
 }
 
+#ifdef AUT64_PACK_SUPPORT
 // Serialize a validated key structure into its 16-byte packed format.
 int aut64_pack(uint8_t* dest, const struct aut64_key* src) {
 #ifdef AUT64_ENABLE_VALIDATIONS
@@ -408,6 +409,7 @@ int aut64_pack(uint8_t* dest, const struct aut64_key* src) {
 
     return AUT64_OK;
 }
+#endif // AUT64_PACK_SUPPORT
 
 // Deserialize a 16-byte packed key into a key structure and validate it.
 int aut64_unpack(struct aut64_key* dest, const uint8_t* src) {

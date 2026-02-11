@@ -6,6 +6,9 @@
 // uncomment to activate key validation, index boundary verifications, ...
 //#define AUT64_ENABLE_VALIDATIONS
 
+// uncomment to add compilation of aut64_pack (currently unused in the code)
+//#define AUT64_PACK_SUPPORT
+
 #define AUT64_NUM_ROUNDS      12
 #define AUT64_BLOCK_SIZE      8
 #define AUT64_KEY_SIZE        8
@@ -40,5 +43,7 @@ int aut64_encrypt(const struct aut64_key* key, uint8_t* message);
 int aut64_decrypt(const struct aut64_key* key, uint8_t* message);
 
 // Packed key buffer must be at least AUT64_PACKED_KEY_SIZE bytes.
+#ifdef AUT64_PACK_SUPPORT
 int aut64_pack(uint8_t* dest, const struct aut64_key* src);
+#endif
 int aut64_unpack(struct aut64_key* dest, const uint8_t* src);

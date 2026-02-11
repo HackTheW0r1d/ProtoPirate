@@ -15,7 +15,7 @@ struct aut64_key {
     uint8_t sbox[AUT64_SBOX_SIZE];
 };
 
-#define AUT64_KEY_STRUCT_PACKED_SIZE 16
+#define AUT64_PACKED_KEY_SIZE 16
 
 void aut64_encrypt(const struct aut64_key key, uint8_t message[]);
 void aut64_decrypt(const struct aut64_key key, uint8_t message[]);

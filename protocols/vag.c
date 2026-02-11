@@ -32,13 +32,10 @@ static void protocol_vag_load_keys(const char* file_name) {
     protocol_vag_keys_loaded = 0;
 
     for(uint8_t i = 0; i < VAG_KEYS_COUNT; i++) {
-        uint8_t key_packed[AUT64_KEY_STRUCT_PACKED_SIZE];
+        uint8_t key_packed[AUT64_PACKED_KEY_SIZE];
 
         if(subghz_keystore_raw_get_data(
-               file_name,
-               i * AUT64_KEY_STRUCT_PACKED_SIZE,
-               key_packed,
-               AUT64_KEY_STRUCT_PACKED_SIZE)) {
+               file_name, i * AUT64_PACKED_KEY_SIZE, key_packed, AUT64_PACKED_KEY_SIZE)) {
             aut64_unpack(&protocol_vag_keys[i], key_packed);
             protocol_vag_keys_loaded++;
         } else {

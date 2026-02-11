@@ -30,12 +30,6 @@ static void protopirate_scene_receiver_update_statusbar(void* context) {
             "%u/%u",
             protopirate_history_get_item(app->txrx->history),
             PROTOPIRATE_DISPLAY_HISTORY_MAX);
-    } else {
-        furi_string_printf(
-            history_stat_str,
-            "%u/%u",
-            protopirate_history_get_item(app->txrx->history),
-            PROTOPIRATE_DISPLAY_HISTORY_MAX);
     }
 
     // Pass actual external radio status

@@ -1,5 +1,5 @@
-#include <string.h>
 #include "aut64.h"
+#include <string.h>
 
 // https://www.usenix.org/system/files/conference/usenixsecurity16/sec16_paper_garcia.pdf
 
@@ -310,11 +310,10 @@ static uint8_t permute_bits(const struct aut64_key* key, uint8_t byte) {
 int aut64_encrypt(const struct aut64_key* key, uint8_t* message) {
     int rc;
 
+#ifdef AUT64_ENABLE_VALIDATIONS
     if(!key || !message) {
         return AUT64_ERR_NULL_POINTER;
     }
-
-#ifdef AUT64_ENABLE_VALIDATIONS
     // Validate key before doing anything. This prevents silent, unsafe behavior.
     rc = aut64_validate_key(key);
     if(rc != AUT64_OK) {
@@ -351,11 +350,10 @@ int aut64_encrypt(const struct aut64_key* key, uint8_t* message) {
 
 // Decrypt one 8-byte block in place using the provided validated key.
 int aut64_decrypt(const struct aut64_key* key, uint8_t* message) {
+#ifdef AUT64_ENABLE_VALIDATIONS
     if(!key || !message) {
         return AUT64_ERR_NULL_POINTER;
     }
-
-#ifdef AUT64_ENABLE_VALIDATIONS
     int rc = aut64_validate_key(key);
     if(rc != AUT64_OK) {
         return rc;
@@ -375,11 +373,10 @@ int aut64_decrypt(const struct aut64_key* key, uint8_t* message) {
 
 // Serialize a validated key structure into its 16-byte packed format.
 int aut64_pack(uint8_t* dest, const struct aut64_key* src) {
+#ifdef AUT64_ENABLE_VALIDATIONS
     if(!dest || !src) {
         return AUT64_ERR_NULL_POINTER;
     }
-
-#ifdef AUT64_ENABLE_VALIDATIONS
     // Validate the key we are about to pack. This prevents producing garbage packed keys.
     int rc = aut64_validate_key(src);
     if(rc != AUT64_OK) {
@@ -414,9 +411,11 @@ int aut64_pack(uint8_t* dest, const struct aut64_key* src) {
 
 // Deserialize a 16-byte packed key into a key structure and validate it.
 int aut64_unpack(struct aut64_key* dest, const uint8_t* src) {
+#ifdef AUT64_ENABLE_VALIDATIONS
     if(!dest || !src) {
         return AUT64_ERR_NULL_POINTER;
     }
+#endif
 
     // Clear the whole struct first, so all fields are in a defined state.
     *dest = (struct aut64_key){0};

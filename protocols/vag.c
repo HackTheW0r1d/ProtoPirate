@@ -37,6 +37,7 @@ static void protocol_vag_load_keys(const char* file_name) {
         if(subghz_keystore_raw_get_data(
                file_name, i * AUT64_PACKED_KEY_SIZE, key_packed, AUT64_PACKED_KEY_SIZE)) {
             int rc = aut64_unpack(&protocol_vag_keys[i], key_packed);
+#ifdef AUT64_ENABLE_VALIDATIONS
             if(rc == AUT64_ERR_INVALID_PACKED) {
                 FURI_LOG_E(TAG, "Invalid key: %u", i);
             } else if(rc == AUT64_ERR_NULL_POINTER) {
@@ -47,6 +48,10 @@ static void protocol_vag_load_keys(const char* file_name) {
             } else {
                 break;
             }
+#else
+            (void)rc;
+            protocol_vag_keys_loaded++;
+#endif
         } else {
             FURI_LOG_E(TAG, "Unable to load key %u", i);
             break;
@@ -198,11 +203,13 @@ static bool vag_aut64_decrypt(uint8_t* block, int key_index) {
         return false;
     }
     int rc = aut64_decrypt(key, block);
+#ifdef AUT64_ENABLE_VALIDATIONS
     if(rc == AUT64_ERR_INVALID_KEY) {
         FURI_LOG_E(TAG, "Invalid key: %d", key_index + 1);
     } else if(rc == AUT64_ERR_NULL_POINTER) {
         FURI_LOG_E(TAG, "key is NULL: %d", key_index + 1);
     }
+#endif
 
     return (rc == AUT64_OK) ? true : false;
 }
@@ -1083,11 +1090,13 @@ static bool vag_aut64_encrypt(uint8_t* block, int key_index) {
         return false;
     }
     int rc = aut64_encrypt(key, block);
+#ifdef AUT64_ENABLE_VALIDATIONS
     if(rc == AUT64_ERR_INVALID_KEY) {
         FURI_LOG_E(TAG, "Invalid key: %d", key_index + 1);
     } else if(rc == AUT64_ERR_NULL_POINTER) {
         FURI_LOG_E(TAG, "key is NULL");
     }
+#endif
 
     return (rc == AUT64_OK) ? true : false;
 }

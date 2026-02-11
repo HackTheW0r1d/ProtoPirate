@@ -378,8 +378,10 @@ static void close_file_handles(SubDecodeContext* ctx) {
         flipper_format_free(ctx->ff);
         ctx->ff = NULL;
     }
-    furi_record_close(RECORD_STORAGE);
-    //ctx->storage = NULL;
+    if(ctx->storage) {
+        furi_record_close(RECORD_STORAGE);
+        ctx->storage = NULL;
+    }
 }
 
 // Receiver view callback for history navigation

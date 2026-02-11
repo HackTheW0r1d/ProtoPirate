@@ -498,14 +498,11 @@ const SubGhzProtocol vag_protocol = {
 
 void* subghz_protocol_decoder_vag_alloc(SubGhzEnvironment* environment) {
     UNUSED(environment);
-    SubGhzProtocolDecoderVAG* instance = malloc(sizeof(SubGhzProtocolDecoderVAG));
+    SubGhzProtocolDecoderVAG* instance = calloc(1, sizeof(SubGhzProtocolDecoderVAG));
+    furi_check(instance);
     instance->base.protocol = &vag_protocol;
     instance->generic.protocol_name = instance->base.protocol->name;
     instance->decrypted = false;
-    instance->serial = 0;
-    instance->cnt = 0;
-    instance->btn = 0;
-    instance->check_byte = 0;
     instance->key_idx = 0xFF;
 
     protocol_vag_load_keys(APP_ASSETS_PATH("vag"));
@@ -1729,25 +1726,15 @@ void* subghz_protocol_encoder_vag_alloc(SubGhzEnvironment* environment) {
     UNUSED(environment);
     FURI_LOG_I(TAG, "VAG encoder alloc");
 
-    SubGhzProtocolEncoderVAG* instance = malloc(sizeof(SubGhzProtocolEncoderVAG));
+    SubGhzProtocolEncoderVAG* instance = calloc(1, sizeof(SubGhzProtocolEncoderVAG));
+    furi_check(instance);
     instance->base.protocol = &vag_protocol;
     instance->generic.protocol_name = instance->base.protocol->name;
 
-    instance->upload = malloc(VAG_ENCODER_UPLOAD_MAX_SIZE * sizeof(LevelDuration));
-    instance->size_upload = 0;
+    instance->upload = calloc(VAG_ENCODER_UPLOAD_MAX_SIZE, sizeof(LevelDuration));
+    furi_check(instance->upload);
     instance->repeat = 10;
-    instance->front = 0;
     instance->is_running = false;
-
-    instance->key1_low = 0;
-    instance->key1_high = 0;
-    instance->key2_low = 0;
-    instance->key2_high = 0;
-    instance->serial = 0;
-    instance->cnt = 0;
-    instance->vag_type = 0;
-    instance->btn = 0;
-    instance->dispatch_byte = 0;
     instance->key_idx = 0xFF;
 
     protocol_vag_load_keys(APP_ASSETS_PATH("vag"));

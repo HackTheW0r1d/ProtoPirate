@@ -82,20 +82,17 @@ const SubGhzProtocol fiat_protocol_v0 = {
 
 void* subghz_protocol_encoder_fiat_v0_alloc(SubGhzEnvironment* environment) {
     UNUSED(environment);
-    SubGhzProtocolEncoderFiatV0* instance = malloc(sizeof(SubGhzProtocolEncoderFiatV0));
+    SubGhzProtocolEncoderFiatV0* instance = calloc(1, sizeof(SubGhzProtocolEncoderFiatV0));
+    furi_check(instance);
 
     instance->base.protocol = &fiat_protocol_v0;
     instance->generic.protocol_name = instance->base.protocol->name;
 
     instance->encoder.repeat = 10;
     instance->encoder.size_upload = 1024;
-    instance->encoder.upload = malloc(instance->encoder.size_upload * sizeof(LevelDuration));
+    instance->encoder.upload = calloc(1, instance->encoder.size_upload * sizeof(LevelDuration));
+    furi_check(instance->encoder.upload);
     instance->encoder.is_running = false;
-    instance->encoder.front = 0;
-
-    instance->cnt = 0;
-    instance->serial = 0;
-    instance->btn = 0;
 
     return instance;
 }
@@ -342,7 +339,8 @@ LevelDuration subghz_protocol_encoder_fiat_v0_yield(void* context) {
 
 void* subghz_protocol_decoder_fiat_v0_alloc(SubGhzEnvironment* environment) {
     UNUSED(environment);
-    SubGhzProtocolDecoderFiatV0* instance = malloc(sizeof(SubGhzProtocolDecoderFiatV0));
+    SubGhzProtocolDecoderFiatV0* instance = calloc(1, sizeof(SubGhzProtocolDecoderFiatV0));
+    furi_check(instance);
     instance->base.protocol = &fiat_protocol_v0;
     instance->generic.protocol_name = instance->base.protocol->name;
     return instance;

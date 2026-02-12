@@ -5,14 +5,52 @@
 
 #define TAG "VAGProtocol"
 
+#define VAG_ENCODER_UPLOAD_MAX_SIZE 680
+#define VAG_KEYS_COUNT              3
+// uncomment to enable
+//#define VAG_CHECK_UPLOAD_OVERFLOW
+
+/* Timing helpers: keep decoder/encoder checks compact and consistent */
+static inline uint32_t vag_udiff_u32(uint32_t a, uint32_t b) {
+    return (a > b) ? (a - b) : (b - a);
+}
+#define VAG_NEAR(d, t, tol) (vag_udiff_u32((d), (t)) <= (uint32_t)(tol))
+#define VAG_TOL_300         79u
+#define VAG_TOL_500         120u
+
+/* Manchester emit helper: one bit -> two half-bits */
+#define VAG_EMIT_MANCHESTER(u, idx, bit, te)                 \
+    do {                                                     \
+        if(bit) {                                            \
+            (u)[(idx)++] = level_duration_make(true, (te));  \
+            (u)[(idx)++] = level_duration_make(false, (te)); \
+        } else {                                             \
+            (u)[(idx)++] = level_duration_make(false, (te)); \
+            (u)[(idx)++] = level_duration_make(true, (te));  \
+        }                                                    \
+    } while(0)
+
+#ifdef VAG_CHECK_UPLOAD_OVERFLOW
+/* Guard against upload buffer overflow; set size_upload=0 on failure */
+#define VAG_UPLOAD_NEED(inst, idx, need)                                                    \
+    do {                                                                                    \
+        if(((idx) + (need)) > VAG_ENCODER_UPLOAD_MAX_SIZE) {                                \
+            FURI_LOG_E(                                                                     \
+                TAG, "Upload overflow (need=%u idx=%zu)", (unsigned)(need), (size_t)(idx)); \
+            (inst)->size_upload = 0;                                                        \
+            return;                                                                         \
+        }                                                                                   \
+    } while(0)
+#else
+#define VAG_UPLOAD_NEED(inst, idx, need)
+#endif
+
 static const SubGhzBlockConst subghz_protocol_vag_const = {
     .te_short = 500,
     .te_long = 1000,
     .te_delta = 80,
     .min_count_bit_for_found = 80,
 };
-
-#define VAG_KEYS_COUNT 3
 
 static int8_t protocol_vag_keys_loaded = -1;
 static struct aut64_key protocol_vag_keys[VAG_KEYS_COUNT];
@@ -519,8 +557,22 @@ void subghz_protocol_decoder_vag_free(void* context) {
 void subghz_protocol_decoder_vag_reset(void* context) {
     furi_check(context);
     SubGhzProtocolDecoderVAG* instance = context;
+
     instance->parser_step = VAGDecoderStepReset;
     instance->decrypted = false;
+
+    /* Reset decoder state to avoid stale parsing after external resets */
+    instance->te_last = 0;
+    instance->data_low = 0;
+    instance->data_high = 0;
+    instance->bit_count = 0;
+    instance->data_count_bit = 0;
+    instance->vag_type = 0;
+    instance->header_count = 0;
+    instance->mid_count = 0;
+    manchester_advance(
+        instance->manchester_state, ManchesterEventReset, &instance->manchester_state, NULL);
+
     instance->serial = 0;
     instance->cnt = 0;
     instance->btn = 0;
@@ -605,12 +657,7 @@ void subghz_protocol_decoder_vag_feed(void* context, bool level, uint32_t durati
             if(duration > 79) {
                 return;
             }
-            if(instance->te_last < 300) {
-                diff = 300 - instance->te_last;
-            } else {
-                diff = instance->te_last - 300;
-            }
-            if(diff > 79) {
+            if(!VAG_NEAR(instance->te_last, 300, VAG_TOL_300)) {
                 return;
             }
             instance->parser_step = VAGDecoderStepData1;
@@ -618,12 +665,7 @@ void subghz_protocol_decoder_vag_feed(void* context, bool level, uint32_t durati
         }
 
     check_preamble1_prev:
-        if(instance->te_last < 300) {
-            diff = 300 - instance->te_last;
-        } else {
-            diff = instance->te_last - 300;
-        }
-        if(diff > 79) {
+        if(!VAG_NEAR(instance->te_last, 300, VAG_TOL_300)) {
             instance->parser_step = VAGDecoderStepReset;
             if(instance->header_count >= 201) {
             }
@@ -773,86 +815,52 @@ void subghz_protocol_decoder_vag_feed(void* context, bool level, uint32_t durati
         break;
 
     case VAGDecoderStepSync2A:
-        if(!level) {
-            if(duration < 500) {
-                diff = 500 - duration;
-            } else {
-                diff = duration - 500;
-            }
-            if(diff < 80) {
-                if(instance->te_last < 1000) {
-                    diff = 1000 - instance->te_last;
-                } else {
-                    diff = instance->te_last - 1000;
-                }
-                if(diff < 80) {
-                    instance->te_last = duration;
-                    instance->parser_step = VAGDecoderStepSync2B;
-                    break;
-                }
-            }
+        if(!level && VAG_NEAR(duration, 500, 79) && VAG_NEAR(instance->te_last, 1000, 79)) {
+            instance->te_last = duration;
+            instance->parser_step = VAGDecoderStepSync2B;
+            break;
         }
         instance->parser_step = VAGDecoderStepReset;
         break;
 
     case VAGDecoderStepSync2B:
-        if(level) {
-            if(duration < 750) {
-                diff = 750 - duration;
-            } else {
-                diff = duration - 750;
-            }
-            if(diff < 80) {
-                instance->te_last = duration;
-                instance->parser_step = VAGDecoderStepSync2C;
-                break;
-            }
+        if(level && VAG_NEAR(duration, 750, 79)) {
+            instance->te_last = duration;
+            instance->parser_step = VAGDecoderStepSync2C;
+            break;
         }
         instance->parser_step = VAGDecoderStepReset;
         break;
 
     case VAGDecoderStepSync2C:
-        if(!level) {
-            if(duration < 750) {
-                diff = 750 - duration;
-            } else {
-                diff = duration - 750;
-            }
-            if(diff <= 79) {
-                if(instance->te_last < 750) {
-                    diff = 750 - instance->te_last;
-                } else {
-                    diff = instance->te_last - 750;
-                }
-                if(diff <= 79) {
-                    instance->mid_count++;
-                    instance->parser_step = VAGDecoderStepSync2B;
+        if(!level && VAG_NEAR(duration, 750, 79) && VAG_NEAR(instance->te_last, 750, 79)) {
+            instance->mid_count++;
+            instance->parser_step = VAGDecoderStepSync2B;
 
-                    if(instance->mid_count == 3) {
-                        instance->data_low = 1;
-                        instance->data_high = 0;
-                        instance->bit_count = 1;
-                        manchester_advance(
-                            instance->manchester_state,
-                            ManchesterEventReset,
-                            &instance->manchester_state,
-                            NULL);
-                        instance->parser_step = VAGDecoderStepData2;
-                    }
-                    break;
-                }
+            if(instance->mid_count == 3) {
+                instance->data_low = 1;
+                instance->data_high = 0;
+                instance->bit_count = 1;
+                manchester_advance(
+                    instance->manchester_state,
+                    ManchesterEventReset,
+                    &instance->manchester_state,
+                    NULL);
+                instance->parser_step = VAGDecoderStepData2;
             }
+            break;
         }
         instance->parser_step = VAGDecoderStepReset;
         break;
 
     case VAGDecoderStepData2:
-        if(duration >= 380 && duration <= 620) {
+
+        if(VAG_NEAR(duration, 500, VAG_TOL_500)) {
             event = level ? ManchesterEventShortLow : ManchesterEventShortHigh;
             goto process_manchester2;
         }
 
-        if(duration >= 880 && duration <= 1120) {
+        if(VAG_NEAR(duration, 1000, VAG_TOL_500)) {
             event = level ? ManchesterEventLongLow : ManchesterEventLongHigh;
             goto process_manchester2;
         }
@@ -1152,6 +1160,7 @@ static void vag_encoder_build_type1(SubGhzProtocolEncoderVAG* instance) {
 
     size_t index = 0;
     LevelDuration* upload = instance->upload;
+    VAG_UPLOAD_NEED(instance, index, 700);
 
     uint8_t btn_byte = vag_btn_to_byte(instance->btn, 1);
     uint8_t dispatch = vag_get_dispatch_byte(btn_byte, 1);
@@ -1233,13 +1242,7 @@ static void vag_encoder_build_type1(SubGhzProtocolEncoderVAG* instance) {
 #endif
     for(int i = 15; i >= 0; i--) {
         bool bit = (prefix >> i) & 1;
-        if(bit) {
-            upload[index++] = level_duration_make(true, 300);
-            upload[index++] = level_duration_make(false, 300);
-        } else {
-            upload[index++] = level_duration_make(false, 300);
-            upload[index++] = level_duration_make(true, 300);
-        }
+        VAG_EMIT_MANCHESTER(upload, index, bit, 300);
     }
     FURI_LOG_D(TAG, "Prefix 0x%04X: %zu pulses", prefix, index - prefix_start);
 
@@ -1258,13 +1261,7 @@ static void vag_encoder_build_type1(SubGhzProtocolEncoderVAG* instance) {
 #endif
     for(int i = 63; i >= 0; i--) {
         bool bit = (key1_inv >> i) & 1;
-        if(bit) {
-            upload[index++] = level_duration_make(true, 300);
-            upload[index++] = level_duration_make(false, 300);
-        } else {
-            upload[index++] = level_duration_make(false, 300);
-            upload[index++] = level_duration_make(true, 300);
-        }
+        VAG_EMIT_MANCHESTER(upload, index, bit, 300);
     }
     FURI_LOG_D(TAG, "Key1: %zu pulses (64 bits)", index - key1_start);
 
@@ -1276,13 +1273,7 @@ static void vag_encoder_build_type1(SubGhzProtocolEncoderVAG* instance) {
 #endif
     for(int i = 15; i >= 0; i--) {
         bool bit = (key2_inv >> i) & 1;
-        if(bit) {
-            upload[index++] = level_duration_make(true, 300);
-            upload[index++] = level_duration_make(false, 300);
-        } else {
-            upload[index++] = level_duration_make(false, 300);
-            upload[index++] = level_duration_make(true, 300);
-        }
+        VAG_EMIT_MANCHESTER(upload, index, bit, 300);
     }
     FURI_LOG_D(TAG, "Key2: %zu pulses (16 bits)", index - key2_start);
 
@@ -1301,6 +1292,7 @@ static void vag_encoder_build_type2(SubGhzProtocolEncoderVAG* instance) {
 
     size_t index = 0;
     LevelDuration* upload = instance->upload;
+    VAG_UPLOAD_NEED(instance, index, 700);
 
     uint8_t btn_byte = vag_btn_to_byte(instance->btn, 2);
     uint8_t dispatch = vag_get_dispatch_byte(btn_byte, 2);
@@ -1393,13 +1385,7 @@ static void vag_encoder_build_type2(SubGhzProtocolEncoderVAG* instance) {
 #endif
     for(int i = 15; i >= 0; i--) {
         bool bit = (prefix >> i) & 1;
-        if(bit) {
-            upload[index++] = level_duration_make(true, 300);
-            upload[index++] = level_duration_make(false, 300);
-        } else {
-            upload[index++] = level_duration_make(false, 300);
-            upload[index++] = level_duration_make(true, 300);
-        }
+        VAG_EMIT_MANCHESTER(upload, index, bit, 300);
     }
     FURI_LOG_D(TAG, "Prefix 0x%04X: %zu pulses", prefix, index - prefix_start);
 
@@ -1417,13 +1403,7 @@ static void vag_encoder_build_type2(SubGhzProtocolEncoderVAG* instance) {
 #endif
     for(int i = 63; i >= 0; i--) {
         bool bit = (key1_inv >> i) & 1;
-        if(bit) {
-            upload[index++] = level_duration_make(true, 300);
-            upload[index++] = level_duration_make(false, 300);
-        } else {
-            upload[index++] = level_duration_make(false, 300);
-            upload[index++] = level_duration_make(true, 300);
-        }
+        VAG_EMIT_MANCHESTER(upload, index, bit, 300);
     }
     FURI_LOG_D(TAG, "Key1: %zu pulses", index - key1_start);
 
@@ -1435,13 +1415,7 @@ static void vag_encoder_build_type2(SubGhzProtocolEncoderVAG* instance) {
 #endif
     for(int i = 15; i >= 0; i--) {
         bool bit = (key2_inv >> i) & 1;
-        if(bit) {
-            upload[index++] = level_duration_make(true, 300);
-            upload[index++] = level_duration_make(false, 300);
-        } else {
-            upload[index++] = level_duration_make(false, 300);
-            upload[index++] = level_duration_make(true, 300);
-        }
+        VAG_EMIT_MANCHESTER(upload, index, bit, 300);
     }
     FURI_LOG_D(TAG, "Key2: %zu pulses", index - key2_start);
 
@@ -1456,6 +1430,7 @@ static void vag_encoder_build_type3_4(SubGhzProtocolEncoderVAG* instance) {
 
     size_t index = 0;
     LevelDuration* upload = instance->upload;
+    VAG_UPLOAD_NEED(instance, index, 600);
 
     uint8_t btn_byte = vag_btn_to_byte(instance->btn, instance->vag_type);
     uint8_t dispatch = vag_get_dispatch_byte(btn_byte, instance->vag_type);
@@ -1619,15 +1594,8 @@ static void vag_encoder_build_type3_4(SubGhzProtocolEncoderVAG* instance) {
         bool last_level = false;
         for(int i = 15; i >= 0; i--) {
             bool bit = (key2 >> i) & 1;
-            if(bit) {
-                upload[index++] = level_duration_make(true, 500);
-                upload[index++] = level_duration_make(false, 500);
-                last_level = false;
-            } else {
-                upload[index++] = level_duration_make(false, 500);
-                upload[index++] = level_duration_make(true, 500);
-                last_level = true;
-            }
+            VAG_EMIT_MANCHESTER(upload, index, bit, 500);
+            last_level = !bit;
         }
         FURI_LOG_D(
             TAG,
@@ -1718,8 +1686,6 @@ void subghz_protocol_decoder_vag_get_string(void* context, FuriString* output) {
             key2);
     }
 }
-
-#define VAG_ENCODER_UPLOAD_MAX_SIZE 680
 
 #ifdef ENABLE_EMULATE_FEATURE
 void* subghz_protocol_encoder_vag_alloc(SubGhzEnvironment* environment) {

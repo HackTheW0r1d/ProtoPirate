@@ -41,6 +41,9 @@ struct SubGhzProtocolEncoderFiatV0 {
     uint32_t hop;
     uint32_t fix;
     uint8_t endbyte;
+
+    // Capacity of encoder.upload in LevelDuration elements.
+    size_t upload_capacity;
 };
 
 typedef enum {
@@ -81,6 +84,30 @@ const SubGhzProtocol fiat_protocol_v0 = {
 // ENCODER IMPLEMENTATION
 // ============================================================================
 
+static size_t fiat_v0_encoder_calc_required_upload(void) {
+    // Per burst:
+    // - preamble: FIAT_V0_PREAMBLE_PAIRS pairs -> 2 elements each
+    // - data: 64 bits Manchester -> 2 elements per bit
+    // - endbyte: 7 bits Manchester -> 2 elements per bit
+    // - trailer: 1 element (extended low)
+    const size_t per_burst = (FIAT_V0_PREAMBLE_PAIRS * 2) + (64 * 2) + (7 * 2) + 1;
+    // Inter-burst gap is a single element between bursts.
+    return (FIAT_V0_TOTAL_BURSTS * per_burst) +
+           (FIAT_V0_TOTAL_BURSTS > 0 ? (FIAT_V0_TOTAL_BURSTS - 1) : 0);
+}
+
+static void
+    fiat_v0_encoder_ensure_upload_capacity(SubGhzProtocolEncoderFiatV0* instance, size_t required) {
+    furi_check(instance);
+    furi_check(required <= instance->upload_capacity);
+
+    LevelDuration* new_upload =
+        realloc(instance->encoder.upload, required * sizeof(LevelDuration));
+    furi_check(new_upload);
+    instance->encoder.upload = new_upload;
+    instance->upload_capacity = required;
+}
+
 void* subghz_protocol_encoder_fiat_v0_alloc(SubGhzEnvironment* environment) {
     UNUSED(environment);
     SubGhzProtocolEncoderFiatV0* instance = calloc(1, sizeof(SubGhzProtocolEncoderFiatV0));
@@ -90,8 +117,9 @@ void* subghz_protocol_encoder_fiat_v0_alloc(SubGhzEnvironment* environment) {
     instance->generic.protocol_name = instance->base.protocol->name;
 
     instance->encoder.repeat = 10;
-    instance->encoder.size_upload = 1024;
-    instance->encoder.upload = calloc(instance->encoder.size_upload, sizeof(LevelDuration));
+    instance->encoder.size_upload = 0;
+    instance->upload_capacity = fiat_v0_encoder_calc_required_upload();
+    instance->encoder.upload = calloc(instance->upload_capacity, sizeof(LevelDuration));
     furi_check(instance->encoder.upload);
     instance->encoder.is_running = false;
 
@@ -111,6 +139,9 @@ static void subghz_protocol_encoder_fiat_v0_get_upload(SubGhzProtocolEncoderFiat
     furi_check(instance);
     size_t index = 0;
 
+    const size_t required = fiat_v0_encoder_calc_required_upload();
+    fiat_v0_encoder_ensure_upload_capacity(instance, required);
+
     uint32_t te_short = subghz_protocol_fiat_v0_const.te_short;
 
     FURI_LOG_I(
@@ -118,7 +149,7 @@ static void subghz_protocol_encoder_fiat_v0_get_upload(SubGhzProtocolEncoderFiat
         "Building upload: hop=0x%08lX, fix=0x%08lX, endbyte=0x%02X",
         instance->hop,
         instance->fix,
-        instance->endbyte);
+        instance->endbyte & 0x7F);
 
     for(uint8_t burst = 0; burst < FIAT_V0_TOTAL_BURSTS; burst++) {
         if(burst > 0) {
@@ -132,7 +163,7 @@ static void subghz_protocol_encoder_fiat_v0_get_upload(SubGhzProtocolEncoderFiat
             instance->encoder.upload[index++] = level_duration_make(false, te_short);
         }
 
-        // Extend last LOW to create the gap (~800us)
+        // Extend last LOW to create the gap (~FIAT_V0_GAP_US)
         instance->encoder.upload[index - 1] = level_duration_make(false, FIAT_V0_GAP_US);
 
         // Combine hop and fix into 64-bit data
@@ -152,8 +183,9 @@ static void subghz_protocol_encoder_fiat_v0_get_upload(SubGhzProtocolEncoderFiat
         }
 
         // Manchester encode 7 bits of endbyte (bits 6:0) - signal has 71 total bits
+        uint8_t endbyte = (uint8_t)(instance->endbyte & 0x7F);
         for(int bit = 6; bit >= 0; bit--) {
-            bool curr_bit = (instance->endbyte >> bit) & 1;
+            bool curr_bit = (endbyte >> bit) & 1;
 
             if(curr_bit) {
                 instance->encoder.upload[index++] = level_duration_make(true, te_short);
@@ -168,6 +200,7 @@ static void subghz_protocol_encoder_fiat_v0_get_upload(SubGhzProtocolEncoderFiat
         instance->encoder.upload[index++] = level_duration_make(false, te_short * 4);
     }
 
+    furi_check(index <= instance->upload_capacity);
     instance->encoder.size_upload = index;
     instance->encoder.front = 0;
 
@@ -186,10 +219,10 @@ SubGhzProtocolStatus
 
     flipper_format_rewind(flipper_format);
 
-    do {
-        FuriString* temp_str = furi_string_alloc();
-        furi_check(temp_str);
+    FuriString* temp_str = furi_string_alloc();
+    furi_check(temp_str);
 
+    do {
         if(!flipper_format_read_string(flipper_format, "Protocol", temp_str)) {
             FURI_LOG_E(TAG, "Missing Protocol");
             break;
@@ -199,14 +232,24 @@ SubGhzProtocolStatus
             FURI_LOG_E(TAG, "Wrong protocol: %s", furi_string_get_cstr(temp_str));
             break;
         }
-        furi_string_free(temp_str);
 
-        uint32_t bit_count_temp;
-        if(!flipper_format_read_uint32(flipper_format, "Bit", &bit_count_temp, 1)) {
+        uint32_t bit_count_temp = 0;
+        if(flipper_format_read_uint32(flipper_format, "Bit", &bit_count_temp, 1)) {
+            // This protocol transmits 71 bits: 64-bit key + 7-bit endbyte.
+            // Let's do according to what's read, (64 or 71), else 71
+            if(bit_count_temp == 64 || bit_count_temp == 71) {
+                instance->generic.data_count_bit = bit_count_temp;
+            } else {
+                FURI_LOG_E(
+                    TAG,
+                    "Inconsistent Bit value of %" PRIu32 " was defaulted to 71",
+                    instance->generic.data_count_bit);
+                instance->generic.data_count_bit = 71;
+            }
+        } else {
             FURI_LOG_E(TAG, "Missing Bit");
             break;
         }
-        instance->generic.data_count_bit = 64;
 
         if(!flipper_format_read_string(flipper_format, "Key", temp_str)) {
             FURI_LOG_E(TAG, "Missing Key");
@@ -223,19 +266,24 @@ SubGhzProtocolStatus
             if(c == ' ') continue;
 
             uint8_t nibble;
-            if(c >= '0' && c <= '9')
-                nibble = c - '0';
-            else if(c >= 'A' && c <= 'F')
-                nibble = c - 'A' + 10;
-            else if(c >= 'a' && c <= 'f')
-                nibble = c - 'a' + 10;
-            else
+            if(c >= '0' && c <= '9') {
+                nibble = (uint8_t)(c - '0');
+            } else if(c >= 'A' && c <= 'F') {
+                nibble = (uint8_t)(c - 'A' + 10);
+            } else if(c >= 'a' && c <= 'f') {
+                nibble = (uint8_t)(c - 'a' + 10);
+            } else {
                 break;
+            }
 
             key = (key << 4) | nibble;
             hex_pos++;
         }
-        furi_string_free(temp_str);
+
+        if(hex_pos != 16) {
+            FURI_LOG_E(TAG, "Key parse error: expected 16 hex nibbles, got %u", (unsigned)hex_pos);
+            break;
+        }
 
         instance->generic.data = key;
         instance->hop = (uint32_t)(key >> 32);
@@ -243,28 +291,36 @@ SubGhzProtocolStatus
 
         uint32_t btn_temp = 0;
         if(flipper_format_read_uint32(flipper_format, "Btn", &btn_temp, 1)) {
-            instance->endbyte = (uint8_t)btn_temp;
+            instance->endbyte = (uint8_t)(btn_temp & 0x7F);
         } else {
             instance->endbyte = 0;
         }
+
         instance->generic.btn = instance->endbyte;
         instance->generic.cnt = instance->hop;
         instance->generic.serial = instance->fix;
 
-        if(!flipper_format_read_uint32(
-               flipper_format, "Repeat", (uint32_t*)&instance->encoder.repeat, 1)) {
+        uint32_t repeat_temp = 0;
+        if(flipper_format_read_uint32(flipper_format, "Repeat", &repeat_temp, 1)) {
+            instance->encoder.repeat = repeat_temp;
+        } else {
             instance->encoder.repeat = 10;
         }
 
         subghz_protocol_encoder_fiat_v0_get_upload(instance);
-
         instance->encoder.is_running = true;
 
-        FURI_LOG_I(TAG, "Encoder ready: hop=0x%08lX, fix=0x%08lX", instance->hop, instance->fix);
+        FURI_LOG_I(
+            TAG,
+            "Encoder ready: hop=0x%08lX, fix=0x%08lX, endbyte=0x%02X",
+            instance->hop,
+            instance->fix,
+            instance->endbyte);
 
         ret = SubGhzProtocolStatusOk;
     } while(false);
 
+    furi_string_free(temp_str);
     return ret;
 }
 
@@ -534,7 +590,7 @@ void subghz_protocol_decoder_fiat_v0_feed(void* context, bool level, uint32_t du
                         TAG,
                         "EXTRACTED ENDBYTE: endbyte=0x%02X (decimal=%d), expected=0x0D (13)",
                         instance->endbyte,
-                        instance->endbyte);
+                        instance->endbyte & 0x7F);
 
                     instance->generic.data = ((uint64_t)instance->hop << 32) | instance->fix;
                     instance->generic.data_count_bit = 71;
@@ -562,7 +618,7 @@ void subghz_protocol_decoder_fiat_v0_feed(void* context, bool level, uint32_t du
                     TAG,
                     "GAP PATH EXTRACTION (71 bits): bit_count=%d, endbyte=0x%02X",
                     instance->bit_count,
-                    instance->endbyte);
+                    instance->endbyte & 0x7F);
 
                 instance->generic.data = ((uint64_t)instance->hop << 32) | instance->fix;
                 instance->generic.data_count_bit = 71;
@@ -662,5 +718,5 @@ void subghz_protocol_decoder_fiat_v0_get_string(void* context, FuriString* outpu
         instance->fix,
         instance->hop,
         instance->fix,
-        instance->endbyte);
+        instance->endbyte & 0x7F);
 }

@@ -1,0 +1,94 @@
+name: "Build kia v5 encoder"
+
+on:
+  push:
+    branches: ["WIP-Kia-v5-Encoder"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      contains(github.event.head_commit.message, '[build]')
+
+    permissions:
+      contents: write
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Get timestamp
+        id: timestamp
+        run: |
+          TIMESTAMP=$(date -u +%d.%m.%Y)
+          echo "timestamp=$TIMESTAMP" >> $GITHUB_OUTPUT
+
+      - name: Create folder
+        run: mkdir faps
+
+      - name: Build (momentum)
+        uses: flipperdevices/flipperzero-ufbt-action@v0.1.3
+        id: build-momentum
+        with:
+          sdk-channel: dev
+          sdk-index-url: https://up.momentum-fw.dev/firmware/directory.json
+
+      - name: Rename momentum artifact
+        run: |
+          cp ${{ steps.build-momentum.outputs.fap-artifacts }} faps/proto_pirate_momentum.fap
+
+      - name: Build (unleashed)
+        uses: flipperdevices/flipperzero-ufbt-action@v0.1.3
+        id: build-unleashed
+        with:
+          sdk-channel: dev
+          sdk-index-url: https://up.unleashedflip.com/directory.json
+
+      - name: Rename unleashed artifact
+        run: |
+          cp ${{ steps.build-unleashed.outputs.fap-artifacts }} faps/proto_pirate_unleashed.fap
+
+      - name: Get app info
+        id: app-info
+        run: |
+          APP_NAME=$(grep -E "name\s*=" application.fam | sed 's/.*name\s*=\s*"\([^"]*\)".*/\1/' | head -1)
+          echo "name=$APP_NAME" >> $GITHUB_OUTPUT
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ steps.timestamp.outputs.timestamp }}
+          name: ${{ steps.app-info.outputs.name }} (${{ steps.timestamp.outputs.timestamp }})
+          files: faps/*.fap
+          body: |
+            ## ${{ steps.app-info.outputs.name }}
+
+            ### Installation
+            1. Download the correct firmware version `.fap`
+            2. Copy to `apps/Sub-GHz` on your Flipper Zero
+            3. Launch from Applications menu
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  cleanup-old-releases:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Cleanup releases older than 10 weeks
+        run: |
+          CUTOFF_DATE=$(date -u -d "70 days ago" +%s)
+
+          RELEASES=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            https://api.github.com/repos/${{ github.repository }}/releases)
+
+          OLD_RELEASES=$(echo "$RELEASES" | jq -r --argjson cutoff "$CUTOFF_DATE" \
+            '.[] | select((.created_at | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601) < $cutoff) | .id')
+
+          for release_id in $OLD_RELEASES; do
+            echo "Deleting old release: $release_id"
+            curl -X DELETE -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+              "https://api.github.com/repos/${{ github.repository }}/releases/$release_id"
+          done

@@ -1,4 +1,4 @@
-name: "Build"
+name: "Build kia v5 encoder"
 
 on:
   push:

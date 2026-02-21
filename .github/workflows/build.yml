@@ -2,7 +2,7 @@ name: "Build"
 
 on:
   push:
-    branches: ["main"]
+    branches: ["WIP-Kia-v5-Encoder"]
   workflow_dispatch:
 
 jobs:

@@ -5,6 +5,7 @@ on:
     branches: 
     - main
     - WIP-Kia-v5-Encoder
+    - zero-mega
   workflow_dispatch:
 
 jobs:

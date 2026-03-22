@@ -177,12 +177,12 @@ static bool protopirate_storage_write_capture_data(
         free(custom_data);
     }
 
-    /* TE / Serial / Btn / Cnt / BSMagic / CRC / Type */
+    /* TE / Serial / Btn / Cnt / Checksum / CRC / Type */
     PROTOPIRATE_COPY_U32_OPTIONAL("TE");
     PROTOPIRATE_COPY_U32_OPTIONAL("Serial");
     PROTOPIRATE_COPY_U32_OPTIONAL("Btn");
     PROTOPIRATE_COPY_U32_OPTIONAL("Cnt");
-    PROTOPIRATE_COPY_U32_OPTIONAL("BSMagic");
+    PROTOPIRATE_COPY_U32_OPTIONAL("Checksum");
     PROTOPIRATE_COPY_U32_OPTIONAL("CRC");
     PROTOPIRATE_COPY_U32_OPTIONAL("Type");
 
@@ -212,6 +212,10 @@ static bool protopirate_storage_write_capture_data(
 
     /* Key_2 */
     PROTOPIRATE_COPY_STRING_OPTIONAL("Key_2");
+    PROTOPIRATE_COPY_U32_OPTIONAL("Key_2");
+    PROTOPIRATE_COPY_U32_OPTIONAL("Key_3");
+    PROTOPIRATE_COPY_U32_OPTIONAL("Key_4");
+    PROTOPIRATE_COPY_U32_OPTIONAL("Fx");
 
     /* Key1 */
     uint8_t key1_buf[8];
@@ -254,14 +258,14 @@ static bool protopirate_storage_write_capture_data(
         free(raw_array);
     }
 
-    /* DataHi / DataLo / RawCnt / Encrypted / Decrypted / KIAVersion / BS */
+    /* DataHi / DataLo / RawCnt / Encrypted / Decrypted / KIAVersion / Checksum */
     PROTOPIRATE_COPY_U32_OPTIONAL("DataHi");
     PROTOPIRATE_COPY_U32_OPTIONAL("DataLo");
     PROTOPIRATE_COPY_U32_OPTIONAL("RawCnt");
     PROTOPIRATE_COPY_U32_OPTIONAL("Encrypted");
     PROTOPIRATE_COPY_U32_OPTIONAL("Decrypted");
     PROTOPIRATE_COPY_U32_OPTIONAL("KIAVersion");
-    PROTOPIRATE_COPY_U32_OPTIONAL("BS");
+    PROTOPIRATE_COPY_U32_OPTIONAL("Checksum");
 
     /* Manufacture */
     PROTOPIRATE_COPY_STRING_OPTIONAL("Manufacture");
